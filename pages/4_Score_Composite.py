@@ -38,9 +38,11 @@ with st.sidebar:
     st.divider()
     st.info("""
     **Pondération du score (/ 100) :**
-    - Valorisation : 50 pts
-    - Analystes : 30 pts
-    - Qualité : 20 pts
+    - Valorisation (sectorielle) : 35 pts
+    - DCF valeur intrinsèque : 20 pts
+    - Croissance : 15 pts
+    - Analystes : 20 pts
+    - Qualité : 10 pts
     """)
 
     run_scan = st.button("🚀 Calculer les scores", type="primary", use_container_width=True)
@@ -89,6 +91,8 @@ if run_scan:
             "Secteur": sector,
             "Market Cap": mcap,
             "Valorisation": scores["valuation"],
+            "DCF": scores["dcf"],
+            "Croissance": scores["growth"],
             "Analystes": scores["analysts"],
             "Qualité": scores["quality"],
             "Score Total": scores["composite"],
@@ -134,9 +138,11 @@ if run_scan:
             return "background-color: #fff3cd; font-weight: bold"
         return ""
 
-    df_display = df[["Rang", "Ticker", "Nom", "Secteur", "Valorisation", "Analystes", "Qualité", "Score Total", "Divergence"]].copy()
+    df_display = df[["Rang", "Ticker", "Nom", "Secteur", "Valorisation", "DCF", "Croissance", "Analystes", "Qualité", "Score Total", "Divergence"]].copy()
     df_display["Market Cap"] = df["Market Cap"].apply(fmt_market_cap)
     df_display["Valorisation"] = df_display["Valorisation"].apply(lambda x: f"{x:.1f}")
+    df_display["DCF"] = df_display["DCF"].apply(lambda x: f"{x:.1f}")
+    df_display["Croissance"] = df_display["Croissance"].apply(lambda x: f"{x:.1f}")
     df_display["Analystes"] = df_display["Analystes"].apply(lambda x: f"{x:.1f}")
     df_display["Qualité"] = df_display["Qualité"].apply(lambda x: f"{x:.1f}")
     df_display["Score Total"] = df_display["Score Total"].apply(lambda x: f"{x:.1f}")
@@ -200,22 +206,22 @@ if run_scan:
         },
         title="Valorisation (X) vs Score Analystes (Y) — taille = Market Cap",
         labels={
-            "Valorisation": "Score Valorisation (0–50)",
-            "Analystes": "Score Analystes (0–30)",
+            "Valorisation": "Score Valorisation (0–35)",
+            "Analystes": "Score Analystes (0–20)",
         },
         size_max=50,
     )
 
-    # Lignes de séparation quadrants
-    fig_scatter.add_hline(y=15, line_dash="dot", line_color="gray", opacity=0.5)
-    fig_scatter.add_vline(x=25, line_dash="dot", line_color="gray", opacity=0.5)
+    # Lignes de séparation quadrants (milieu de chaque axe : 17.5 et 10)
+    fig_scatter.add_hline(y=10, line_dash="dot", line_color="gray", opacity=0.5)
+    fig_scatter.add_vline(x=17.5, line_dash="dot", line_color="gray", opacity=0.5)
 
     # Annotations quadrants
-    fig_scatter.add_annotation(x=40, y=28, text="Opportunité oubliée", showarrow=False,
+    fig_scatter.add_annotation(x=28, y=18, text="Opportunité oubliée", showarrow=False,
                                font=dict(color="green", size=11), opacity=0.7)
-    fig_scatter.add_annotation(x=40, y=2, text="Value trap potentiel", showarrow=False,
+    fig_scatter.add_annotation(x=28, y=2, text="Value trap potentiel", showarrow=False,
                                font=dict(color="red", size=11), opacity=0.7)
-    fig_scatter.add_annotation(x=5, y=28, text="Sur-évaluation consensuelle", showarrow=False,
+    fig_scatter.add_annotation(x=4, y=18, text="Sur-évaluation consensuelle", showarrow=False,
                                font=dict(color="orange", size=11), opacity=0.7)
 
     fig_scatter.update_traces(textposition="top center")
@@ -240,12 +246,14 @@ else:
 
         | Catégorie | Poids | Sous-métriques |
         |-----------|-------|----------------|
-        | **Valorisation** | 50 pts | PE (15), PS (10), PEG (10), P/B (5), EV/EBITDA (10) |
-        | **Analystes** | 30 pts | Recommandation moyenne (15), Upside vs target (15) |
-        | **Qualité** | 20 pts | ROE (7), Marge nette (7), Debt/Equity inversé (6) |
+        | **Valorisation** | 35 pts | PE growth-adjusted (15), PS (10), PEG (10), P/B (5), EV/EBITDA (10) — comparé à la médiane sectorielle |
+        | **DCF** | 20 pts | Valeur intrinsèque 2 étapes + Gordon Growth Model |
+        | **Croissance** | 15 pts | earningsGrowth (8), revenueGrowth (7) |
+        | **Analystes** | 20 pts | Recommandation moyenne (10), Upside vs target (10) |
+        | **Qualité** | 10 pts | ROE (7/20), Marge nette (7/20), Debt/Equity (6/20) |
 
-        Chaque sous-score est normalisé 0–100 selon des bornes absolues (voir spec §6),
-        puis pondéré pour obtenir le score final sur 100.
+        Le scoring de valorisation blende 60% sectoriel (vs médiane Damodaran 2025) + 40% absolu.
+        Le PE est ajusté de la croissance : bornes dynamiques basées sur earningsGrowth/revenueGrowth.
 
         ### Détection des divergences
 

@@ -84,6 +84,46 @@ def score_ev_ebitda(ev_ebitda) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Scores de croissance
+# ---------------------------------------------------------------------------
+
+def score_earnings_growth(growth) -> float | None:
+    """Croissance des bénéfices YoY. good=30%, bad=0%. Négatif → None."""
+    val = _safe_float(growth)
+    if val is None or val < 0:
+        return None
+    return _linear_score(val, good=0.30, bad=0.0)
+
+
+def score_revenue_growth(growth) -> float | None:
+    """Croissance du CA YoY. good=20%, bad=0%. Négatif → None."""
+    val = _safe_float(growth)
+    if val is None or val < 0:
+        return None
+    return _linear_score(val, good=0.20, bad=0.0)
+
+
+def score_pe_growth_adjusted(pe, growth_rate) -> float | None:
+    """
+    PE avec bornes dynamiques basées sur la croissance.
+    Principe : un PE juste ≈ 1× le taux de croissance en % (règle PEG=1).
+      good = max(8, growth_pct * 0.8)
+      bad  = max(20, growth_pct * 2.5)
+    Fallback sur bornes statiques si growth_rate None ou nul.
+    """
+    pe_val = _safe_float(pe)
+    if pe_val is None or pe_val <= 0:
+        return None
+    growth_val = _safe_float(growth_rate)
+    if not growth_val or growth_val <= 0:
+        return _linear_score(pe_val, good=10.0, bad=30.0)
+    growth_pct = growth_val * 100
+    good = max(8.0, growth_pct * 0.8)
+    bad = max(20.0, growth_pct * 2.5)
+    return _linear_score(pe_val, good=good, bad=bad)
+
+
+# ---------------------------------------------------------------------------
 # Scores de qualité
 # ---------------------------------------------------------------------------
 
@@ -115,29 +155,60 @@ def score_debt_equity(de) -> float | None:
 # Scores agrégés
 # ---------------------------------------------------------------------------
 
-def score_valuation(info: dict) -> float:
+def score_valuation(info: dict, sector: str | None = None) -> float:
     """
-    Score de valorisation agrégé sur 50 pts.
-    Poids : PE×15, PS×10, PEG×10, P/B×5, EV/EBITDA×10.
+    Score de valorisation agrégé sur 35 pts.
+    Blend 40% statique (growth-adjusted) + 60% sectoriel.
+    Si sector=None → 100% statique (rétrocompatible).
+    Poids des ratios : PE×15, PS×10, PEG×10, P/B×5, EV/EBITDA×10.
     """
-    scores_weights = [
-        (score_pe(info.get("trailingPE")), 15),
-        (score_ps(info.get("priceToSalesTrailing12Months")), 10),
-        (score_peg(info.get("pegRatio")), 10),
-        (score_pb(info.get("priceToBook")), 5),
-        (score_ev_ebitda(info.get("enterpriseToEbitda")), 10),
-    ]
-    total_weight = 0
-    weighted_sum = 0.0
-    for s, w in scores_weights:
-        if s is not None:
-            weighted_sum += s * w
-            total_weight += w
+    from utils.sector_benchmarks import score_vs_sector as svs
 
-    if total_weight == 0:
+    growth = _safe_float(info.get("earningsGrowth")) or _safe_float(info.get("revenueGrowth"))
+    pe_raw = info.get("trailingPE")
+    ps_raw = info.get("priceToSalesTrailing12Months")
+    peg_raw = info.get("pegRatio")
+    pb_raw = info.get("priceToBook")
+    ev_raw = info.get("enterpriseToEbitda")
+
+    static_sw = [
+        (score_pe_growth_adjusted(pe_raw, growth), 15),
+        (score_ps(ps_raw), 10),
+        (score_peg(peg_raw), 10),
+        (score_pb(pb_raw), 5),
+        (score_ev_ebitda(ev_raw), 10),
+    ]
+
+    sector_sw = [
+        (svs(pe_raw, "pe", sector), 15),
+        (svs(ps_raw, "ps", sector), 10),
+        (svs(peg_raw, "peg", sector), 10),
+        (svs(pb_raw, "pb", sector), 5),
+        (svs(ev_raw, "ev_ebitda", sector), 10),
+    ]
+
+    def _wavg(sw):
+        tw, ws = 0, 0.0
+        for s, w in sw:
+            if s is not None:
+                ws += s * w
+                tw += w
+        return (ws / tw) if tw > 0 else None
+
+    static_avg = _wavg(static_sw)
+    sector_avg = _wavg(sector_sw)
+
+    if static_avg is None and sector_avg is None:
         return 0.0
-    # Ramener sur 50 pts
-    return (weighted_sum / total_weight) * 50 / 100
+
+    if sector is None or sector_avg is None:
+        blended = static_avg or 0.0
+    elif static_avg is None:
+        blended = sector_avg
+    else:
+        blended = 0.4 * static_avg + 0.6 * sector_avg
+
+    return blended * 35 / 100
 
 
 def score_quality(info: dict) -> float:
@@ -159,7 +230,7 @@ def score_quality(info: dict) -> float:
 
     if total_weight == 0:
         return 0.0
-    return (weighted_sum / total_weight) * 20 / 100
+    return (weighted_sum / total_weight) * 10 / 100
 
 
 # ---------------------------------------------------------------------------

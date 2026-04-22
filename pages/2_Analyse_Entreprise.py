@@ -33,6 +33,17 @@ from utils.ratios import (
     score_ps,
     valuation_label,
     score_valuation,
+    score_earnings_growth,
+    score_revenue_growth,
+)
+from utils.sector_benchmarks import get_sector_benchmarks, score_vs_sector
+from utils.dcf import compute_dcf, compute_dcf_scenarios
+from utils.scoring import compute_composite_score
+from utils.analysis import (
+    classify_growth_regime,
+    detect_strengths,
+    detect_risks,
+    generate_verdict,
 )
 
 st.set_page_config(page_title="Analyse Entreprise", page_icon="🔍", layout="wide")
@@ -127,12 +138,59 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Onglets principaux
 # ---------------------------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+# ---------------------------------------------------------------------------
+# Analyse contextuelle — calcul (une seule fois, réutilisé dans tous les onglets)
+# ---------------------------------------------------------------------------
+with st.spinner("Analyse contextuelle…"):
+    scores     = compute_composite_score(info)
+    dcf_result = scores["dcf_result"]
+    regime     = classify_growth_regime(info)
+    strengths  = detect_strengths(info, scores, dcf_result)
+    risks      = detect_risks(info, scores, dcf_result)
+    verdict    = generate_verdict(info, scores, dcf_result, regime)
+
+# ---------------------------------------------------------------------------
+# Section "Analyse contextuelle" — toujours visible, avant les onglets
+# ---------------------------------------------------------------------------
+st.subheader("🧠 Analyse contextuelle")
+
+_regime_color_map = {
+    "blue": "blue", "green": "green", "yellow": "orange",
+    "gray": "gray", "red": "red",
+}
+_badge_color = _regime_color_map.get(regime["color"], "gray")
+st.markdown(
+    f"**{regime['emoji']} RÉGIME :** :{_badge_color}[**{regime['regime']}**]"
+    f" — *{regime['description']}*"
+)
+
+_col_left, _col_right = st.columns(2)
+with _col_left:
+    st.markdown("**✅ Points forts**")
+    if strengths:
+        for _s in strengths:
+            st.markdown(f"- {_s}")
+    else:
+        st.caption("Aucun signal positif identifié.")
+
+with _col_right:
+    st.markdown("**⚠️ Points de vigilance**")
+    if risks:
+        for _r in risks:
+            st.markdown(f"- {_r}")
+    else:
+        st.caption("Aucun signal de risque identifié.")
+
+st.markdown(f"> **Verdict :** {verdict}")
+st.divider()
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 Valorisation",
     "💪 Santé financière",
     "📈 États financiers",
     "📉 Graphiques",
     "💰 Dividende",
+    "🎯 Valorisation Intrinsèque",
 ])
 
 # ---- TAB 1 : Valorisation --------------------------------------------------
@@ -165,10 +223,11 @@ with tab1:
                 icon = "⚪"
             col.metric(f"{icon} {label}", fmt_ratio(val))
 
-    # Jauge de valorisation globale
+    # Jauge de valorisation globale (secteur-relative, growth-adjusted)
     st.divider()
-    val_score = score_valuation(info)
-    val_pct = val_score / 50 * 100
+    sector = safe_get(info, "sector")
+    val_score = score_valuation(info, sector=sector)
+    val_pct = val_score / 35 * 100
     label = valuation_label(val_score)
 
     st.subheader(f"Valorisation globale : {label}")
@@ -190,10 +249,37 @@ with tab1:
                 "value": val_pct,
             },
         },
-        title={"text": "Score Valorisation (0=Cher, 100=Très attractif)"},
+        title={"text": "Score Valorisation vs secteur (0=Cher, 100=Très attractif)"},
     ))
     fig_gauge.update_layout(height=300, margin=dict(t=60, b=0, l=20, r=20))
     st.plotly_chart(fig_gauge, use_container_width=True)
+
+    # Tableau comparaison sectorielle
+    st.divider()
+    st.subheader(f"Comparaison sectorielle — {sector or 'Secteur inconnu'}")
+    benchmarks = get_sector_benchmarks(sector)
+    sector_rows = []
+    for ratio_key, ratio_label, info_key in [
+        ("pe",        "PE Trailing",  "trailingPE"),
+        ("ps",        "Price/Sales",  "priceToSalesTrailing12Months"),
+        ("peg",       "PEG Ratio",    "pegRatio"),
+        ("pb",        "Price/Book",   "priceToBook"),
+        ("ev_ebitda", "EV/EBITDA",    "enterpriseToEbitda"),
+    ]:
+        company_val = safe_get(info, info_key)
+        median_val = benchmarks.get(ratio_key)
+        vs_score = score_vs_sector(company_val, ratio_key, sector)
+        vs_median = None
+        if company_val is not None and median_val and median_val != 0:
+            vs_median = (company_val - median_val) / median_val
+        sector_rows.append({
+            "Ratio": ratio_label,
+            "Entreprise": fmt_ratio(company_val),
+            "Médiane secteur": fmt_ratio(median_val),
+            "Vs médiane": fmt_upside(vs_median) if vs_median is not None else "N/A",
+            "Score /100": f"{vs_score:.0f}" if vs_score is not None else "N/A",
+        })
+    st.dataframe(sector_rows, use_container_width=True, hide_index=True)
 
 # ---- TAB 2 : Santé financière ----------------------------------------------
 with tab2:
@@ -222,6 +308,21 @@ with tab2:
     col1, col2 = st.columns(2)
     col1.metric("Total Cash", fmt_market_cap(safe_get(info, "totalCash"), display_currency))
     col2.metric("Total Debt", fmt_market_cap(safe_get(info, "totalDebt"), display_currency))
+
+    st.subheader("Croissance")
+    eg = safe_get(info, "earningsGrowth")
+    rg = safe_get(info, "revenueGrowth")
+    eg_score = score_earnings_growth(eg)
+    rg_score = score_revenue_growth(rg)
+
+    def _growth_icon(score):
+        if score is None:
+            return "⚪"
+        return "🟢" if score >= 65 else "🟡" if score >= 35 else "🔴"
+
+    col1, col2 = st.columns(2)
+    col1.metric(f"{_growth_icon(eg_score)} Croissance bénéfices (YoY)", fmt_pct(eg) if eg is not None else "N/A")
+    col2.metric(f"{_growth_icon(rg_score)} Croissance revenus (YoY)", fmt_pct(rg) if rg is not None else "N/A")
 
 # ---- TAB 3 : États financiers ----------------------------------------------
 with tab3:
@@ -353,3 +454,110 @@ with tab5:
                 st.info(f"📅 Prochaine date ex-dividende : **{date_str}**")
             except Exception:
                 pass
+
+# ---- TAB 6 : Valorisation Intrinsèque (DCF) ----------------------------------
+with tab6:
+    import pandas as pd
+    st.subheader("Valorisation DCF — Modèle à 2 étapes")
+
+    dcf = dcf_result  # déjà calculé dans le bloc d'analyse contextuelle
+
+    conf_colors = {"Élevée": "green", "Modérée": "orange", "Faible": "red"}
+    conf_color = conf_colors.get(dcf["confidence"], "gray")
+    st.markdown(f"**Fiabilité du modèle :** :{conf_color}[{dcf['confidence']}]")
+
+    if dcf["intrinsic_value"] is None:
+        reason = dcf["details"].get("reason", "Données insuffisantes.")
+        st.warning(f"DCF non calculable : {reason}")
+    else:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Valeur intrinsèque (DCF)", fmt_currency(dcf["intrinsic_value"], display_currency))
+        col2.metric("Prix actuel", fmt_currency(dcf["current_price"], display_currency))
+
+        mos = dcf["margin_of_safety"]
+        mos_pct = f"{mos * 100:+.1f} %" if mos is not None else "N/A"
+        mos_delta_color = "normal" if mos is None else ("normal" if mos >= 0 else "inverse")
+        col3.metric("Marge de sécurité", mos_pct, delta=mos_pct, delta_color=mos_delta_color)
+
+        st.divider()
+        st.subheader("Hypothèses du modèle")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("WACC", f"{dcf['wacc'] * 100:.1f} %")
+        col2.metric("Croissance Stage 1 (×5 ans)", f"{dcf['growth_rate_stage1'] * 100:.1f} %")
+        col3.metric("Croissance Stage 2 (×5 ans)", f"{dcf['growth_rate_stage2'] * 100:.1f} %")
+        col4.metric("FCF / action", fmt_currency(dcf["fcf_per_share"], display_currency))
+
+        col1, col2 = st.columns(2)
+        col1.metric("Taux terminal (Gordon)", "3.0 %")
+        col2.metric("Source taux croissance", dcf["details"].get("growth_source", "N/A"))
+
+        st.divider()
+        st.subheader("Décomposition de la valeur intrinsèque")
+        d = dcf["details"]
+        decomp = pd.DataFrame([
+            {"Composante": "PV Stage 1 (années 1–5)",   "Valeur / action": fmt_currency(d.get("pv_stage1"), display_currency)},
+            {"Composante": "PV Stage 2 (années 6–10)",  "Valeur / action": fmt_currency(d.get("pv_stage2"), display_currency)},
+            {"Composante": "PV Valeur terminale",        "Valeur / action": fmt_currency(d.get("pv_terminal"), display_currency)},
+            {"Composante": "TOTAL",                      "Valeur / action": fmt_currency(dcf["intrinsic_value"], display_currency)},
+        ])
+        st.dataframe(decomp, use_container_width=True, hide_index=True)
+
+        with st.expander("Détail des flux actualisés par année"):
+            yearly = d.get("year_cashflows", [])
+            if yearly:
+                df_fcf = pd.DataFrame(yearly)
+                df_fcf["FCF/action"] = df_fcf["FCF/action"].apply(lambda x: fmt_currency(x, display_currency))
+                df_fcf["PV FCF/action"] = df_fcf["PV FCF/action"].apply(lambda x: fmt_currency(x, display_currency))
+                df_fcf["Stage"] = df_fcf["Stage"].apply(lambda x: f"Stage {x}")
+                st.dataframe(df_fcf, use_container_width=True, hide_index=True)
+
+    # --- Scénarios bull / base / bear ---
+    st.divider()
+    st.subheader("Analyse de scénarios DCF")
+
+    scenarios = compute_dcf_scenarios(info)
+
+    if not scenarios.get("available"):
+        st.info("Scénarios non disponibles — DCF de base non calculable.")
+    else:
+        def _mos_label(mos):
+            return f"{mos * 100:+.1f} %" if mos is not None else "N/A"
+
+        s_bull = scenarios["bull"]
+        s_base = scenarios["base"]
+        s_bear = scenarios["bear"]
+
+        col_bull, col_base, col_bear = st.columns(3)
+
+        with col_bull:
+            st.markdown("**Scénario optimiste**")
+            st.metric(
+                f"Croissance S1 : {s_bull['growth_s1']*100:.0f}%/an",
+                fmt_currency(s_bull.get("intrinsic_value"), display_currency),
+                delta=_mos_label(s_bull.get("margin_of_safety")),
+                delta_color="normal",
+            )
+        with col_base:
+            st.markdown("**Scénario central**")
+            st.metric(
+                f"Croissance S1 : {s_base['growth_s1']*100:.0f}%/an",
+                fmt_currency(s_base.get("intrinsic_value"), display_currency),
+                delta=_mos_label(s_base.get("margin_of_safety")),
+                delta_color="normal",
+            )
+        with col_bear:
+            st.markdown("**Scénario pessimiste**")
+            st.metric(
+                f"Croissance S1 : {s_bear['growth_s1']*100:.0f}%/an",
+                fmt_currency(s_bear.get("intrinsic_value"), display_currency),
+                delta=_mos_label(s_bear.get("margin_of_safety")),
+                delta_color="inverse",
+            )
+
+    st.info(
+        "⚠️ Ce DCF est une estimation indicative basée sur les données Yahoo Finance. "
+        "Il ne constitue pas un conseil en investissement. Les projections reposent sur "
+        "des hypothèses simplifiées (taux de croissance constant par étape, WACC approché via beta, "
+        "taux terminal fixe à 3%). Pour une analyse professionnelle, utilisez un modèle complet "
+        "intégrant la structure du capital et des scénarios de croissance multiples."
+    )
