@@ -4,6 +4,9 @@ Navigation vers les 4 modules + gestion de la watchlist.
 """
 
 import streamlit as st
+from utils.styles import apply_custom_css
+from utils.topbar import render_ticker_tape, render_topnav
+import utils.watchlist as wl
 
 st.set_page_config(
     page_title="Dashboard Financier",
@@ -11,33 +14,33 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+apply_custom_css()
+render_ticker_tape()
+render_topnav("home")
 
 # ---------------------------------------------------------------------------
 # Session state initial
 # ---------------------------------------------------------------------------
 st.session_state.setdefault("selected_ticker", "AAPL")
-st.session_state.setdefault("watchlist", [])
+wl.init_session_state()
 
 # ---------------------------------------------------------------------------
 # Sidebar — Watchlist persistante
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("📈 Dashboard Financier")
-    st.caption("Analyse de valeur & Consensus Analystes")
-    st.divider()
-
-    st.subheader("⭐ Watchlist rapide")
+    st.markdown('<p class="section-label">Watchlist</p>', unsafe_allow_html=True)
     ticker_add = st.text_input(
-        "Ajouter un ticker",
-        placeholder="ex: AAPL, OR.PA, SAP.DE",
+        "Ticker",
+        placeholder="AAPL  OR.PA  SAP.DE",
         key="sidebar_add_ticker",
     ).strip().upper()
 
-    if st.button("➕ Ajouter", use_container_width=True):
-        if ticker_add and ticker_add not in st.session_state["watchlist"]:
-            st.session_state["watchlist"].append(ticker_add)
-        elif ticker_add in st.session_state["watchlist"]:
-            st.info("Déjà dans la watchlist.")
+    if st.button("+ ADD TO WATCHLIST", use_container_width=True):
+        if ticker_add:
+            if wl.add(ticker_add):
+                st.rerun()
+            else:
+                st.info("Already in watchlist.")
 
     if st.session_state["watchlist"]:
         for wt in list(st.session_state["watchlist"]):
@@ -45,75 +48,97 @@ with st.sidebar:
             if col1.button(wt, key=f"home_wl_{wt}", use_container_width=True):
                 st.session_state["selected_ticker"] = wt
                 st.switch_page("pages/2_Analyse_Entreprise.py")
-            if col2.button("✕", key=f"home_rm_{wt}"):
-                st.session_state["watchlist"].remove(wt)
+            if col2.button("X", key=f"home_rm_{wt}"):
+                wl.remove(wt)
                 st.rerun()
     else:
-        st.caption("Aucun ticker en watchlist.")
+        st.caption("NO TICKERS LOADED")
 
 # ---------------------------------------------------------------------------
 # Contenu principal
 # ---------------------------------------------------------------------------
-st.title("📈 Dashboard Financier")
-st.subheader("Analyse de Valeur & Consensus Analystes")
 st.markdown("""
-Identifiez des entreprises **potentiellement sous-évaluées** en croisant analyse fondamentale et sentiment de marché.
-Couvre les marchés **US** (S&P 500, Nasdaq) et **Europe** (CAC 40, DAX 40, FTSE 100, Euro Stoxx 50).
-""")
+<div style="margin-bottom:0.25rem">
+  <span style="font-size:1.4rem;font-weight:700;color:#F0F0F0;letter-spacing:0.03em;text-transform:uppercase;">Financial Dashboard</span>
+</div>
+<div style="color:#555555;font-size:10px;margin-bottom:1.5rem;letter-spacing:0.1em;text-transform:uppercase;">
+  Fundamental Analysis · Analyst Consensus · US &amp; Europe
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
 # ---------------------------------------------------------------------------
 # Navigation rapide — 4 modules
 # ---------------------------------------------------------------------------
-st.subheader("Modules disponibles")
+st.markdown('<p class="section-label">Modules</p>', unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 
 with col1:
     with st.container(border=True):
-        st.markdown("### 🔎 Screener Multi-Ratios")
         st.markdown("""
-        Filtrez un univers de plusieurs dizaines d'entreprises selon vos critères fondamentaux :
-        PE, Forward PE, PS, PEG, P/B, EV/EBITDA, rendement dividende, secteur.
-
-        Scan parallèle avec progress bar — résultats exportables en CSV.
-        """)
-        if st.button("Ouvrir le Screener →", key="nav_screener", type="primary", use_container_width=True):
+        <div style="margin-bottom:0.6rem">
+          <span style="color:#FF6600;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">SCREENER</span>
+        </div>
+        <div style="color:#CCCCCC;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem;">
+          Multi-Ratio Stock Screener
+        </div>
+        <p style="color:#666666;font-size:11px;line-height:1.6;margin:0 0 0.75rem 0;">
+          Filter by PE · Fwd PE · PS · PEG · P/B · EV/EBITDA · Dividend · Sector.
+          Parallel scan across 6 universes — CSV export.
+        </p>
+        """, unsafe_allow_html=True)
+        if st.button("OPEN SCREENER", key="nav_screener", type="primary", use_container_width=True):
             st.switch_page("pages/1_Screener.py")
 
     with st.container(border=True):
-        st.markdown("### 🎯 Consensus Analystes")
         st.markdown("""
-        Consultez les recommandations (Strong Buy → Strong Sell), les price targets
-        (low / mean / median / high) et l'upside potentiel vs le cours actuel.
-
-        Historique des upgrades/downgrades récents.
-        """)
-        if st.button("Ouvrir le Consensus →", key="nav_consensus", type="primary", use_container_width=True):
+        <div style="margin-bottom:0.6rem">
+          <span style="color:#FF6600;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">CONSENSUS</span>
+        </div>
+        <div style="color:#CCCCCC;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem;">
+          Analyst Recommendations
+        </div>
+        <p style="color:#666666;font-size:11px;line-height:1.6;margin:0 0 0.75rem 0;">
+          Strong Buy → Strong Sell breakdown · Price targets (low/mean/high) ·
+          Upside potential · Upgrades/downgrades history.
+        </p>
+        """, unsafe_allow_html=True)
+        if st.button("OPEN CONSENSUS", key="nav_consensus", type="primary", use_container_width=True):
             st.switch_page("pages/3_Consensus_Analystes.py")
 
 with col2:
     with st.container(border=True):
-        st.markdown("### 🔍 Analyse Entreprise")
         st.markdown("""
-        Deep-dive complet sur une entreprise : ratios de valorisation, santé financière,
-        états financiers sur 4 ans, graphiques historiques, dividende.
-
-        Jauge visuelle de valorisation + color-coding des ratios.
-        """)
-        if st.button("Ouvrir l'Analyse →", key="nav_analyse", type="primary", use_container_width=True):
+        <div style="margin-bottom:0.6rem">
+          <span style="color:#FF6600;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">DEEP DIVE</span>
+        </div>
+        <div style="color:#CCCCCC;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem;">
+          Company Analysis
+        </div>
+        <p style="color:#666666;font-size:11px;line-height:1.6;margin:0 0 0.75rem 0;">
+          Sector-relative valuation · DCF 3 scenarios · Financial health ·
+          4-year financials · Contextual analysis · Growth regime.
+        </p>
+        """, unsafe_allow_html=True)
+        if st.button("OPEN ANALYSIS", key="nav_analyse", type="primary", use_container_width=True):
             st.switch_page("pages/2_Analyse_Entreprise.py")
 
     with st.container(border=True):
-        st.markdown("### 🏆 Score Composite")
         st.markdown("""
-        Rankez tout un univers par **score composite** combinant valorisation (50 pts),
-        consensus analystes (30 pts) et qualité financière (20 pts).
-
-        Détection automatique des divergences : opportunités oubliées, value traps…
-        """)
-        if st.button("Ouvrir le Score Composite →", key="nav_score", type="primary", use_container_width=True):
+        <div style="margin-bottom:0.6rem">
+          <span style="color:#FF6600;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">RANKING</span>
+        </div>
+        <div style="color:#CCCCCC;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.5rem;">
+          Composite Score
+        </div>
+        <p style="color:#666666;font-size:11px;line-height:1.6;margin:0 0 0.75rem 0;">
+          Rank a universe on 100-pt composite score (valuation · DCF · growth ·
+          analysts · quality). Divergence detection : forgotten opportunities, value traps.
+        </p>
+        """, unsafe_allow_html=True)
+        if st.button("OPEN RANKING", key="nav_score", type="primary", use_container_width=True):
             st.switch_page("pages/4_Score_Composite.py")
 
 st.divider()
@@ -121,21 +146,21 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Accès rapide ticker
 # ---------------------------------------------------------------------------
-st.subheader("Analyse rapide d'un ticker")
+st.markdown('<p class="section-label">Quick Lookup</p>', unsafe_allow_html=True)
 col_t, col_b1, col_b2 = st.columns([3, 1, 1])
 quick_ticker = col_t.text_input(
     "Ticker",
     value=st.session_state["selected_ticker"],
     label_visibility="collapsed",
-    placeholder="ex: AAPL, OR.PA, SAP.DE, HSBA.L",
+    placeholder="AAPL   OR.PA   SAP.DE   HSBA.L",
 ).strip().upper()
 
 if quick_ticker:
     st.session_state["selected_ticker"] = quick_ticker
 
-if col_b1.button("🔍 Analyser", use_container_width=True):
+if col_b1.button("ANALYZE", use_container_width=True, type="primary"):
     st.switch_page("pages/2_Analyse_Entreprise.py")
-if col_b2.button("🎯 Consensus", use_container_width=True):
+if col_b2.button("CONSENSUS", use_container_width=True):
     st.switch_page("pages/3_Consensus_Analystes.py")
 
 st.divider()
@@ -143,20 +168,20 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Info marchés couverts
 # ---------------------------------------------------------------------------
-with st.expander("🌍 Marchés et conventions de tickers"):
+with st.expander("MARKET COVERAGE — TICKER CONVENTIONS"):
     st.markdown("""
-    | Marché | Suffixe | Exemple |
-    |--------|---------|---------|
-    | US (NYSE/Nasdaq) | aucun | `AAPL` |
-    | Paris (Euronext) | `.PA` | `OR.PA` (L'Oréal) |
-    | Francfort (Xetra) | `.DE` | `SAP.DE` |
-    | Londres (LSE) | `.L` | `HSBA.L` |
+    | MARKET | SUFFIX | EXAMPLE |
+    |--------|--------|---------|
+    | US NYSE / Nasdaq | *(none)* | `AAPL` |
+    | Paris Euronext | `.PA` | `OR.PA` |
+    | Frankfurt Xetra | `.DE` | `SAP.DE` |
+    | London LSE | `.L` | `HSBA.L` |
     | Amsterdam | `.AS` | `ASML.AS` |
     | Milan | `.MI` | `ENEL.MI` |
     | Madrid | `.MC` | `IBE.MC` |
-    | Copenhague | `.CO` | `NOVO-B.CO` |
+    | Copenhagen | `.CO` | `NOVO-B.CO` |
 
-    Les données proviennent de **Yahoo Finance** via yfinance. Mises à jour toutes les heures.
+    Data source: **Yahoo Finance** via yfinance · Cache TTL: **1 hour**
     """)
 
 # ---------------------------------------------------------------------------
@@ -164,9 +189,7 @@ with st.expander("🌍 Marchés et conventions de tickers"):
 # ---------------------------------------------------------------------------
 st.divider()
 st.caption("""
-⚠️ **Disclaimer** : Ce dashboard est un outil d'aide à l'analyse financière,
-il ne constitue pas un conseil en investissement. Les données proviennent de Yahoo Finance
-(gratuit, non garanti pour usage professionnel). L'utilisateur reste seul responsable
-de ses décisions d'investissement. Les ratios de valorisation ont plus de sens en contexte
-relatif (vs pairs, vs historique) qu'en valeur absolue.
+DISCLAIMER: This terminal is a research tool only. It does not constitute investment advice.
+Data sourced from Yahoo Finance (free tier, no SLA). Valuation ratios are most meaningful
+in relative context (vs peers, vs sector medians). User is solely responsible for investment decisions.
 """)

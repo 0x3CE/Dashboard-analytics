@@ -8,6 +8,9 @@ import plotly.graph_objects as go
 import pandas as pd
 import streamlit as st
 
+from utils.styles import apply_custom_css, PLOTLY_DARK_LAYOUT, CHART_COLORS, bloomberg_layout
+from utils.topbar import render_ticker_tape, render_topnav
+import utils.watchlist as wl
 from utils.data import get_universe_data
 from utils.formatting import fmt_market_cap, safe_get
 from utils.scoring import (
@@ -18,17 +21,20 @@ from utils.scoring import (
 from utils.universes import UNIVERSES
 
 st.set_page_config(page_title="Score Composite", page_icon="🏆", layout="wide")
+apply_custom_css()
+render_ticker_tape()
+render_topnav("score")
 
 st.session_state.setdefault("selected_ticker", "AAPL")
-st.session_state.setdefault("watchlist", [])
+wl.init_session_state()
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("🏆 Score Composite")
+    st.markdown('<p class="section-label">Composite Score</p>', unsafe_allow_html=True)
 
-    universe_name = st.selectbox("Univers", list(UNIVERSES.keys()))
+    universe_name = st.selectbox("Universe", list(UNIVERSES.keys()))
     custom_input = st.text_area(
         "Ou tickers personnalisés (un par ligne)",
         placeholder="AAPL\nOR.PA\nSAP.DE",
@@ -106,8 +112,6 @@ if run_scan:
     df = pd.DataFrame(rows).sort_values("Score Total", ascending=False).reset_index(drop=True)
     df["Rang"] = df.index + 1
 
-    st.success(f"✅ Scores calculés pour {len(df)} entreprises.")
-
     # ---------------------------------------------------------------------------
     # Tableau principal
     # ---------------------------------------------------------------------------
@@ -117,11 +121,11 @@ if run_scan:
         try:
             v = float(val)
             if v >= 65:
-                return "background-color: #d4edda; color: #155724"
+                return "background-color: rgba(16,185,129,0.15); color: #6EE7B7"
             if v >= 40:
-                return "background-color: #fff3cd; color: #856404"
+                return "background-color: rgba(245,158,11,0.12); color: #FCD34D"
             if v >= 0:
-                return "background-color: #f8d7da; color: #721c24"
+                return "background-color: rgba(239,68,68,0.12); color: #FCA5A5"
         except (TypeError, ValueError):
             pass
         return ""
@@ -131,11 +135,11 @@ if run_scan:
             return ""
         color = OPPORTUNITY_COLORS.get(val, "")
         if color == "green":
-            return "background-color: #d4edda; font-weight: bold"
+            return "background-color: rgba(16,185,129,0.15); color: #6EE7B7; font-weight: 600"
         if color == "red":
-            return "background-color: #f8d7da; font-weight: bold"
+            return "background-color: rgba(239,68,68,0.12); color: #FCA5A5; font-weight: 600"
         if color == "orange":
-            return "background-color: #fff3cd; font-weight: bold"
+            return "background-color: rgba(245,158,11,0.12); color: #FCD34D; font-weight: 600"
         return ""
 
     df_display = df[["Rang", "Ticker", "Nom", "Secteur", "Valorisation", "DCF", "Croissance", "Analystes", "Qualité", "Score Total", "Divergence"]].copy()
@@ -204,28 +208,30 @@ if run_scan:
             "Divergence": True,
             "Market Cap Norm": False,
         },
-        title="Valorisation (X) vs Score Analystes (Y) — taille = Market Cap",
         labels={
             "Valorisation": "Score Valorisation (0–35)",
             "Analystes": "Score Analystes (0–20)",
         },
         size_max=50,
+        color_discrete_sequence=CHART_COLORS["scale_categorical"],
     )
 
-    # Lignes de séparation quadrants (milieu de chaque axe : 17.5 et 10)
-    fig_scatter.add_hline(y=10, line_dash="dot", line_color="gray", opacity=0.5)
-    fig_scatter.add_vline(x=17.5, line_dash="dot", line_color="gray", opacity=0.5)
+    fig_scatter.add_hline(y=10, line_dash="dot", line_color="#334155", opacity=0.8)
+    fig_scatter.add_vline(x=17.5, line_dash="dot", line_color="#334155", opacity=0.8)
 
-    # Annotations quadrants
     fig_scatter.add_annotation(x=28, y=18, text="Opportunité oubliée", showarrow=False,
-                               font=dict(color="green", size=11), opacity=0.7)
+                               font=dict(color="#6EE7B7", size=11), opacity=0.8)
     fig_scatter.add_annotation(x=28, y=2, text="Value trap potentiel", showarrow=False,
-                               font=dict(color="red", size=11), opacity=0.7)
+                               font=dict(color="#FCA5A5", size=11), opacity=0.8)
     fig_scatter.add_annotation(x=4, y=18, text="Sur-évaluation consensuelle", showarrow=False,
-                               font=dict(color="orange", size=11), opacity=0.7)
+                               font=dict(color="#FCD34D", size=11), opacity=0.8)
 
-    fig_scatter.update_traces(textposition="top center")
-    fig_scatter.update_layout(height=550)
+    fig_scatter.update_traces(textposition="top center",
+                               textfont=dict(color="#94A3B8", size=10))
+    fig_scatter.update_layout(**bloomberg_layout(
+        "Valorisation (X) vs Score Analystes (Y) — taille = Market Cap",
+        height=550,
+    ))
     st.plotly_chart(fig_scatter, use_container_width=True)
 
     # ---------------------------------------------------------------------------

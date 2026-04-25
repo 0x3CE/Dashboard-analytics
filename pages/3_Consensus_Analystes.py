@@ -6,24 +6,30 @@ import plotly.graph_objects as go
 import streamlit as st
 import pandas as pd
 
+from utils.styles import apply_custom_css, PLOTLY_DARK_LAYOUT, CHART_COLORS, bloomberg_layout
+from utils.topbar import render_ticker_tape, render_topnav
+import utils.watchlist as wl
 from utils.data import get_ticker_info, get_ticker_history, get_upgrades_downgrades
 from utils.formatting import fmt_currency, fmt_pct, fmt_upside, safe_get, normalize_price_gbp
 from utils.scoring import score_analyst_recommendation, score_analyst_upside
 
 st.set_page_config(page_title="Consensus Analystes", page_icon="🎯", layout="wide")
+apply_custom_css()
+render_ticker_tape()
+render_topnav("consensus")
 
 st.session_state.setdefault("selected_ticker", "AAPL")
-st.session_state.setdefault("watchlist", [])
+wl.init_session_state()
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("🎯 Consensus Analystes")
+    st.markdown('<p class="section-label">Analyst Consensus</p>', unsafe_allow_html=True)
     ticker_input = st.text_input(
         "Ticker",
         value=st.session_state["selected_ticker"],
-        placeholder="ex: AAPL, OR.PA, SAP.DE",
+        placeholder="AAPL   OR.PA   SAP.DE",
     ).strip().upper()
 
     if ticker_input:
@@ -46,7 +52,9 @@ currency = safe_get(info, "currency", "")
 current_price_raw = safe_get(info, "currentPrice") or safe_get(info, "regularMarketPrice")
 current_price, display_currency = normalize_price_gbp(current_price_raw, currency)
 
-st.title(f"🎯 Consensus Analystes — {safe_get(info, 'longName', symbol)}")
+_name3 = safe_get(info, 'longName', symbol)
+st.markdown(f'<div style="color:#FF6600;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:2px;">{symbol} · ANALYST CONSENSUS</div>', unsafe_allow_html=True)
+st.title(f"{_name3}")
 
 # ---------------------------------------------------------------------------
 # Section A — Recommandations actuelles
@@ -89,20 +97,22 @@ breakdown = {k: v for k, v in breakdown_keys.items() if v is not None and v > 0}
 if breakdown:
     st.divider()
     st.subheader("Répartition des recommandations")
-    colors = ["#00CC44", "#8BC34A", "#FFA500", "#FF7043", "#FF4B4B"]
+    reco_colors = ["#10B981", "#34D399", "#F59E0B", "#F87171", "#EF4444"]
     fig_bar = go.Figure(go.Bar(
         x=list(breakdown.values()),
         y=list(breakdown.keys()),
         orientation="h",
-        marker_color=colors[:len(breakdown)],
+        marker_color=reco_colors[:len(breakdown)],
+        marker_line_width=0,
         text=list(breakdown.values()),
         textposition="outside",
+        textfont=dict(color="#94A3B8"),
     ))
     fig_bar.update_layout(
-        title="Nombre d'analystes par recommandation",
-        xaxis_title="Nombre d'analystes",
-        height=300,
-        margin=dict(l=0, r=30, t=40, b=0),
+        **bloomberg_layout("Nombre d'analystes par recommandation",
+                           xaxis_title="Nombre d'analystes",
+                           height=300,
+                           margin=dict(l=0, r=30, t=40, b=0)),
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -146,61 +156,60 @@ else:
             type="rect",
             x0=0, x1=1,
             y0=t_low, y1=t_high,
-            fillcolor="rgba(33, 150, 243, 0.1)",
-            line=dict(color="rgba(33, 150, 243, 0.3)"),
+            fillcolor=f"rgba(59,130,246,0.08)",
+            line=dict(color="rgba(59,130,246,0.2)"),
         )
 
-        # Ligne prix actuel
         fig_range.add_hline(
             y=current_price,
             line_dash="dash",
-            line_color="#2196F3",
+            line_color=CHART_COLORS["primary"],
             annotation_text=f"Prix actuel: {fmt_currency(current_price, display_currency)}",
             annotation_position="right",
+            annotation_font_color="#93C5FD",
         )
-        # Ligne target moyen
         fig_range.add_hline(
             y=t_mean,
             line_dash="dot",
-            line_color="#4CAF50",
+            line_color=CHART_COLORS["success"],
             annotation_text=f"Target moyen: {fmt_currency(t_mean, display_currency)}",
             annotation_position="right",
+            annotation_font_color="#6EE7B7",
         )
 
         fig_range.update_layout(
-            title="Prix actuel vs fourchette de targets",
-            showlegend=False,
-            height=350,
-            xaxis=dict(visible=False),
-            yaxis_title=f"Prix ({display_currency})",
-            yaxis=dict(range=[t_low * 0.85, t_high * 1.10]),
+            **bloomberg_layout("Prix actuel vs fourchette de targets",
+                               showlegend=True,
+                               height=350,
+                               xaxis=dict(visible=False),
+                               yaxis_title=f"Prix ({display_currency})",
+                               yaxis=dict(range=[t_low * 0.85, t_high * 1.10])),
         )
 
-        # Ajouter prix actuel et targets comme points
         fig_range.add_scatter(
             x=[0.5], y=[current_price],
             mode="markers",
-            marker=dict(color="#2196F3", size=14, symbol="diamond"),
+            marker=dict(color=CHART_COLORS["primary"], size=14, symbol="diamond"),
             name="Prix actuel",
         )
         fig_range.add_scatter(
             x=[0.5], y=[t_mean],
             mode="markers",
-            marker=dict(color="#4CAF50", size=14, symbol="circle"),
+            marker=dict(color=CHART_COLORS["success"], size=14, symbol="circle"),
             name="Target moyen",
         )
         if t_low:
             fig_range.add_scatter(
                 x=[0.5], y=[t_low],
                 mode="markers",
-                marker=dict(color="#FF7043", size=10, symbol="triangle-down"),
+                marker=dict(color=CHART_COLORS["warning"], size=10, symbol="triangle-down"),
                 name="Target bas",
             )
         if t_high:
             fig_range.add_scatter(
                 x=[0.5], y=[t_high],
                 mode="markers",
-                marker=dict(color="#4CAF50", size=10, symbol="triangle-up"),
+                marker=dict(color=CHART_COLORS["success"], size=10, symbol="triangle-up"),
                 name="Target haut",
             )
 
@@ -211,30 +220,29 @@ else:
         hist = get_ticker_history(symbol, period="1y")
 
     if not hist.empty and t_mean is not None:
-        import plotly.express as px
         fig_hist = go.Figure()
         fig_hist.add_scatter(
             x=hist.index, y=hist["Close"],
             mode="lines",
             name="Prix",
-            line=dict(color="#2196F3"),
+            line=dict(color=CHART_COLORS["primary"], width=1.5),
         )
         if t_low and t_high:
             fig_hist.add_scatter(
                 x=list(hist.index) + list(reversed(hist.index)),
                 y=[t_high] * len(hist) + [t_low] * len(hist),
                 fill="toself",
-                fillcolor="rgba(76, 175, 80, 0.1)",
-                line=dict(color="rgba(76, 175, 80, 0)"),
+                fillcolor="rgba(16,185,129,0.08)",
+                line=dict(color="rgba(16,185,129,0)"),
                 name="Fourchette targets",
             )
-        fig_hist.add_hline(y=t_mean, line_dash="dot", line_color="#4CAF50",
-                           annotation_text="Target moyen")
+        fig_hist.add_hline(y=t_mean, line_dash="dot", line_color=CHART_COLORS["success"],
+                           annotation_text="Target moyen", annotation_font_color="#6EE7B7")
         fig_hist.update_layout(
-            title="Historique 1 an + fourchette des targets analystes",
-            xaxis_title="Date",
-            yaxis_title=f"Prix ({display_currency})",
-            height=400,
+            **bloomberg_layout("Historique 1 an + fourchette des targets analystes",
+                               xaxis_title="Date",
+                               yaxis_title=f"Prix ({display_currency})",
+                               height=400),
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -260,9 +268,9 @@ else:
         if isinstance(val, str):
             v = val.lower()
             if "upgrade" in v or "init" in v or "buy" in v:
-                return "background-color: #d4edda"
+                return "background-color: rgba(16,185,129,0.15); color: #6EE7B7"
             if "downgrade" in v or "sell" in v:
-                return "background-color: #f8d7da"
+                return "background-color: rgba(239,68,68,0.12); color: #FCA5A5"
         return ""
 
     st.dataframe(df_ud, use_container_width=True, hide_index=True)

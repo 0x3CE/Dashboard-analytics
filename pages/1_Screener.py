@@ -8,23 +8,29 @@ import io
 import pandas as pd
 import streamlit as st
 
+from utils.styles import apply_custom_css
+from utils.topbar import render_ticker_tape, render_topnav
+import utils.watchlist as wl
 from utils.data import get_universe_data
 from utils.formatting import fmt_market_cap, fmt_pct, fmt_ratio, safe_get
 from utils.ratios import ratio_color, score_ev_ebitda, score_pe, score_peg, score_pb, score_ps
 from utils.universes import UNIVERSES
 
 st.set_page_config(page_title="Screener", page_icon="🔎", layout="wide")
+apply_custom_css()
+render_ticker_tape()
+render_topnav("screener")
 
 st.session_state.setdefault("selected_ticker", "AAPL")
-st.session_state.setdefault("watchlist", [])
+wl.init_session_state()
 
 # ---------------------------------------------------------------------------
 # Sidebar — filtres
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("🔎 Screener")
+    st.markdown('<p class="section-label">Screener Filters</p>', unsafe_allow_html=True)
 
-    universe_name = st.selectbox("Univers", list(UNIVERSES.keys()))
+    universe_name = st.selectbox("Universe", list(UNIVERSES.keys()))
     custom_input = st.text_area(
         "Ou tickers personnalisés (un par ligne)",
         placeholder="AAPL\nOR.PA\nSAP.DE",
@@ -169,11 +175,11 @@ if run_scan:
             score = score_fn(raw)
             color = ratio_color(score)
             if color == "green":
-                return "background-color: #d4edda; color: #155724"
+                return "background-color: rgba(16,185,129,0.15); color: #6EE7B7"
             if color == "orange":
-                return "background-color: #fff3cd; color: #856404"
+                return "background-color: rgba(245,158,11,0.12); color: #FCD34D"
             if color == "red":
-                return "background-color: #f8d7da; color: #721c24"
+                return "background-color: rgba(239,68,68,0.12); color: #FCA5A5"
         except (ValueError, AttributeError):
             pass
         return ""

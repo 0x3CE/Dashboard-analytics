@@ -7,6 +7,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from utils.styles import apply_custom_css, PLOTLY_DARK_LAYOUT, CHART_COLORS, GAUGE_STEPS, bloomberg_layout
+from utils.topbar import render_ticker_tape, render_topnav
+import utils.watchlist as wl
 from utils.data import (
     get_balance_sheet,
     get_cash_flow,
@@ -47,46 +50,48 @@ from utils.analysis import (
 )
 
 st.set_page_config(page_title="Analyse Entreprise", page_icon="🔍", layout="wide")
+apply_custom_css()
+render_ticker_tape()
+render_topnav("analyse")
 
 # ---------------------------------------------------------------------------
 # Initialisation session state
 # ---------------------------------------------------------------------------
 st.session_state.setdefault("selected_ticker", "AAPL")
-st.session_state.setdefault("watchlist", [])
+wl.init_session_state()
 
 # ---------------------------------------------------------------------------
 # Sidebar — sélection du ticker
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("🔍 Analyse Entreprise")
+    st.markdown('<p class="section-label">Company Analysis</p>', unsafe_allow_html=True)
     ticker_input = st.text_input(
         "Ticker",
         value=st.session_state["selected_ticker"],
-        placeholder="ex: AAPL, OR.PA, SAP.DE",
-        help="Entrez un ticker au format Yahoo Finance.",
+        placeholder="AAPL   OR.PA   SAP.DE",
+        help="Yahoo Finance ticker format.",
     ).strip().upper()
 
     if ticker_input:
         st.session_state["selected_ticker"] = ticker_input
 
-    # Watchlist
     st.divider()
-    st.subheader("⭐ Ma Watchlist")
-    if st.button("➕ Ajouter à la watchlist", use_container_width=True):
-        if ticker_input and ticker_input not in st.session_state["watchlist"]:
-            st.session_state["watchlist"].append(ticker_input)
-            st.success(f"{ticker_input} ajouté !")
-        elif ticker_input in st.session_state["watchlist"]:
-            st.info("Déjà dans la watchlist.")
+    st.markdown('<p class="section-label">Watchlist</p>', unsafe_allow_html=True)
+    if st.button("+ ADD TO WATCHLIST", use_container_width=True):
+        if ticker_input:
+            if wl.add(ticker_input):
+                st.success(f"{ticker_input} added.")
+            else:
+                st.info("Already in watchlist.")
 
     if st.session_state["watchlist"]:
-        for wt in st.session_state["watchlist"]:
+        for wt in list(st.session_state["watchlist"]):
             col1, col2 = st.columns([3, 1])
             if col1.button(wt, key=f"wl_{wt}", use_container_width=True):
                 st.session_state["selected_ticker"] = wt
                 st.rerun()
-            if col2.button("✕", key=f"rm_{wt}"):
-                st.session_state["watchlist"].remove(wt)
+            if col2.button("X", key=f"rm_{wt}"):
+                wl.remove(wt)
                 st.rerun()
 
 symbol = st.session_state["selected_ticker"]
@@ -113,7 +118,9 @@ current_price, display_currency = normalize_price_gbp(current_price_raw, currenc
 # ---------------------------------------------------------------------------
 # Header — informations générales
 # ---------------------------------------------------------------------------
-st.title(f"🏢 {safe_get(info, 'longName', symbol)}")
+name = safe_get(info, 'longName', symbol)
+st.markdown(f'<div style="color:#FF6600;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:2px;">{symbol}</div>', unsafe_allow_html=True)
+st.title(f"{name}")
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(
@@ -234,24 +241,29 @@ with tab1:
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
         value=val_pct,
-        number={"suffix": " / 100", "font": {"size": 24}},
+        number={"suffix": " / 100", "font": {"size": 22, "color": "#F0F0F0",
+                                              "family": "'IBM Plex Mono', monospace"}},
         gauge={
-            "axis": {"range": [0, 100]},
-            "bar": {"color": "steelblue"},
-            "steps": [
-                {"range": [0, 35], "color": "#FF4B4B"},
-                {"range": [35, 65], "color": "#FFA500"},
-                {"range": [65, 100], "color": "#00CC44"},
-            ],
+            "axis": {"range": [0, 100],
+                     "tickfont": {"color": "#555555", "size": 9},
+                     "tickcolor": "#2A2A2A"},
+            "bar": {"color": CHART_COLORS["primary"]},
+            "bgcolor": "#0D0D0D",
+            "bordercolor": "#2A2A2A",
+            "steps": GAUGE_STEPS,
             "threshold": {
-                "line": {"color": "black", "width": 3},
+                "line": {"color": "#F0F0F0", "width": 2},
                 "thickness": 0.75,
                 "value": val_pct,
             },
         },
-        title={"text": "Score Valorisation vs secteur (0=Cher, 100=Très attractif)"},
+        title={"text": "VALUATION SCORE VS SECTOR MEDIAN (0=EXPENSIVE · 100=ATTRACTIVE)",
+               "font": {"color": "#555555", "size": 10,
+                        "family": "'IBM Plex Mono', monospace"}},
     ))
-    fig_gauge.update_layout(height=300, margin=dict(t=60, b=0, l=20, r=20))
+    fig_gauge.update_layout(height=300, margin=dict(t=60, b=0, l=20, r=20),
+                             paper_bgcolor="#111111",
+                             font={"family": "'IBM Plex Mono', monospace"})
     st.plotly_chart(fig_gauge, use_container_width=True)
 
     # Tableau comparaison sectorielle
@@ -364,14 +376,16 @@ with tab3:
                 ni = income.loc[ni_row].values / 1e9
 
                 fig = go.Figure()
-                fig.add_bar(name="Revenus (Mrd)", x=years, y=rev, marker_color="#2196F3")
-                fig.add_bar(name="Résultat net (Mrd)", x=years, y=ni, marker_color="#4CAF50")
+                fig.add_bar(name="Revenus (Mrd)", x=years, y=rev,
+                            marker_color=CHART_COLORS["primary"], marker_line_width=0)
+                fig.add_bar(name="Résultat net (Mrd)", x=years, y=ni,
+                            marker_color=CHART_COLORS["success"], marker_line_width=0)
                 fig.update_layout(
-                    title="Évolution Revenus & Résultat Net",
-                    barmode="group",
-                    xaxis_title="Année",
-                    yaxis_title=f"Mrd {display_currency}",
-                    height=350,
+                    **bloomberg_layout("Évolution Revenus & Résultat Net",
+                                       barmode="group",
+                                       xaxis_title="Année",
+                                       yaxis_title=f"Mrd {display_currency}",
+                                       height=350),
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -400,11 +414,10 @@ with tab4:
         # Prix 5 ans
         fig_price = px.line(
             hist, x=hist.index, y="Close",
-            title=f"Prix de clôture sur 5 ans — {symbol}",
             labels={"Close": f"Prix ({display_currency})", "index": "Date"},
         )
-        fig_price.update_traces(line_color="#2196F3")
-        fig_price.update_layout(height=400)
+        fig_price.update_traces(line_color=CHART_COLORS["primary"], line_width=1.5)
+        fig_price.update_layout(**bloomberg_layout(f"Prix de clôture 5 ans — {symbol}", height=400))
         st.plotly_chart(fig_price, use_container_width=True)
 
         # Évolution marge nette si données dispo
@@ -415,14 +428,15 @@ with tab4:
             fig_margin.add_scatter(
                 x=years, y=margins,
                 mode="lines+markers",
-                line=dict(color="#4CAF50"),
+                line=dict(color=CHART_COLORS["success"], width=2),
+                marker=dict(color=CHART_COLORS["success"], size=7),
                 name="Marge nette %",
             )
             fig_margin.update_layout(
-                title="Évolution de la Marge Nette",
-                xaxis_title="Année",
-                yaxis_title="Marge nette (%)",
-                height=300,
+                **bloomberg_layout("Évolution de la Marge Nette",
+                                   xaxis_title="Année",
+                                   yaxis_title="Marge nette (%)",
+                                   height=300),
             )
             st.plotly_chart(fig_margin, use_container_width=True)
 
